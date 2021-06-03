@@ -27,7 +27,7 @@ import yaml
 import base64
 
 from os import getcwd, rename, remove
-from os.path import normpath, join, split, getsize
+from os.path import normpath, join, split, getsize, isfile
 from shutil import copyfile
 from threading import Thread, Event
 from time import sleep
@@ -45,7 +45,7 @@ APPLICATION = "pyPassworder"
 
 # GUI constants
 SIZE_X = 800
-SIZE_Y = 500
+SIZE_Y = 400
 BORDER = 10
 HEIGHT = 30
 COL_B_WIDTH = SIZE_X/3-3*BORDER
@@ -75,7 +75,7 @@ Please consider donating to https://www.ail.it/
 """)
 
 def version():
-    messagebox.showinfo(title="Version", message="""pyPassworder
+    messagebox.showinfo(title="Version", message=APPLICATION + """
 Version 1.0
 Released on 24 Jan 2021
 Francesco Antoniazzi <francesco.antoniazzi1991@gmail.com>
@@ -95,8 +95,10 @@ def chooseYamlFile(yamlFile=None):
                 initialdir = getcwd(), 
                 title = "Select a Password File", 
                 filetypes = [("Yaml file", "*.yaml"), ("all files", "*.*")])
-        else:
+        elif isfile(yamlFile):
             yamlFile = open(yamlFile, "r")
+        else:
+            return
         yamlFilePath = normpath(yamlFile.name)
         
         if (yamlFile is not None):
@@ -113,7 +115,7 @@ def chooseYamlFile(yamlFile=None):
 
 def getYamlFilePathOrDefault(default=None):
     if ((fileLabel is None) or (not len(fileLabel[TEXT].strip()))):
-        return default if default else ""
+        return default if (default and isfile(default)) else ""
     else:
         return fileLabel[TEXT]
 
@@ -262,7 +264,7 @@ def main(args):
     yamlChoice.bind("<<ComboboxSelected>>", lambda x: fillResult(fileLabel[TEXT], yamlChoice.get()))
 
     resultText = Text(root)
-    resultText.place(x=BORDER, y=3*BORDER+2*HEIGHT, height=2/3*SIZE_Y, width=2/3*SIZE_X)
+    resultText.place(x=BORDER, y=3*BORDER+2*HEIGHT, height=SIZE_Y-5*BORDER-2*HEIGHT, width=2/3*SIZE_X)
     scroll = Scrollbar(resultText)
     scroll.pack(side=RIGHT, fill=Y)
     scroll.config(command=resultText.yview)
