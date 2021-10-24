@@ -25,6 +25,7 @@
 import sys
 import yaml
 import base64
+import logging
 
 from os import getcwd, rename, remove
 from os.path import normpath, join, split, getsize, isfile
@@ -41,6 +42,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 
 # Application constants
+logging.basicConfig(level=logging.DEBUG, format="%(levelname)s   %(asctime)-15s %(filename)s[%(lineno)d] : %(message)s")
 APPLICATION = "pyPassworder"
 
 # GUI constants
@@ -54,6 +56,7 @@ ERROR = "Error!"
 BEGIN = "1.0"
 PASSWORD = "Password"
 HIDE_PW_CHAR = "*"
+FILETYPES = [("Yaml file", "*.yaml"), ("all files", "*.*")]
 
 # GUI variables
 root = None                 # Tk root
@@ -64,6 +67,7 @@ timeLabel = None
 cleanUpEvent = Event()
 
 def information():
+    logging.debug("Requested information")
     messagebox.showinfo(title="Information", message=APPLICATION + """    
 Copyright 2021 
 Francesco Antoniazzi <francesco.antoniazzi1991@gmail.com>
@@ -75,6 +79,7 @@ Please consider donating to https://www.ail.it/
 """)
 
 def version():
+    logging.debug("Requested version")
     messagebox.showinfo(title="Version", message=APPLICATION + """
 Version 1.0
 Released on 24 Jan 2021
@@ -85,6 +90,9 @@ Released under GPL 2.0
 https://github.com/fr4ncidir/pyPassworder
 """)
 
+def _isBlank(text):
+    return ((not text) or text.isspace())
+
 def chooseYamlFile(yamlFile=None):
     global yamlChoice
 
@@ -94,35 +102,40 @@ def chooseYamlFile(yamlFile=None):
             yamlFile = filedialog.askopenfile(
                 initialdir = getcwd(), 
                 title = "Select a Password File", 
-                filetypes = [("Yaml file", "*.yaml"), ("all files", "*.*")])
-        elif isfile(yamlFile):
+                filetypes = FILETYPES)
+        elif yamlFile and isfile(yamlFile):
             yamlFile = open(yamlFile, "r")
         else:
+            logging.warning(f"Empty yaml file: {yamlFile}")
             return
-        yamlFilePath = normpath(yamlFile.name)
         
-        if (yamlFile is not None):
-            yamlFilePath = yamlFile.name
-            fileLabel.config(text=yamlFilePath)
-            if getsize(yamlFilePath) > 0:
-                yamlKeys = list(yaml.load(yamlFile, Loader=yaml.SafeLoader).keys())
-                yamlChoice.config(values=yamlKeys)
-            else:
-                yamlChoice.config(values=[])
-            yamlFile.close()
+        yamlFilePath = normpath(yamlFile.name)
+        logging.debug(f"Requested yaml file: {yamlFilePath}")
+        fileLabel.config(text=yamlFilePath)
+        if getsize(yamlFilePath) > 0:
+            yamlKeys = list(yaml.load(yamlFile, Loader=yaml.SafeLoader).keys())
+            yamlChoice.config(values=yamlKeys)
+        else:
+            yamlChoice.config(values=[])
+        yamlFile.close()
     except Exception as e:
-        messagebox.showerror(title=ERROR, message=f"Error while opening '{yamlFilePath}' due to: {repr(e)}")
+        errorMsg = f"Error while opening '{yamlFilePath}' due to: {repr(e)}"
+        logging.error(errorMsg)
+        messagebox.showerror(title=ERROR, message=errorMsg)
 
 def getYamlFilePathOrDefault(default=None):
-    if ((fileLabel is None) or (not len(fileLabel[TEXT].strip()))):
-        return default if (default and isfile(default)) else ""
+    if ((fileLabel is None) or (_isBlank(fileLabel[TEXT]))):
+        result = default if (default and isfile(default)) else ""
+        logging.debug(f"Default yaml path: {result}")
+        return result
     else:
+        logging.debug(f"Requested yaml file path: {fileLabel[TEXT]}")
         return fileLabel[TEXT]
 
 def fillResult(originContent, key=None):
     global resultText
     try: 
-        if (key is not None) and len(key.strip()):
+        if not _isBlank(key):
             with open(originContent, "r") as yamlFile:
                 yamlContent = yaml.load(yamlFile, Loader=yaml.SafeLoader)
                 contents = "" if not key in yamlContent else yamlContent[key]
@@ -131,8 +144,9 @@ def fillResult(originContent, key=None):
         resultText.delete(BEGIN, END)
         resultText.insert(BEGIN, contents)
     except Exception as e:
-        messagebox.showerror(title=ERROR, 
-            message=f"Error while showing contents from '{originContent}, {key}' due to: {repr(e)}")
+        errorMsg = f"Error while showing contents from '{originContent}, {key}' due to: {repr(e)}"
+        logging.error(errorMsg)
+        messagebox.showerror(title=ERROR, message=errorMsg)
 
 def getKey(pw):
     kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), 
@@ -152,11 +166,13 @@ def decrypt():
     
     fillResult(fileLabel[TEXT], yamlChoice.get())
     content = resultText.get(BEGIN, END)
-    if not len(content.strip()):
+    if _isBlank(content):
+        logging.info("No content to decrypt")
         return
     
     pw = simpledialog.askstring(PASSWORD, "Enter Password:", show=HIDE_PW_CHAR)
-    if not len(pw.strip()):
+    if _isBlank(pw):
+        logging.info("Empty password")
         return
     
     try:
@@ -164,7 +180,9 @@ def decrypt():
         result = key.decrypt(content.encode()).decode()
         fillResult(result)
     except Exception as e:
-        messagebox.showerror(title=ERROR, message="Unable to decrypt: " + repr(e))
+        errorMsg = f"Unable to decrypt: {repr(e)}"
+        logging.error(errorMsg)
+        messagebox.showerror(title=ERROR, message=errorMsg)
         return
     
     def waitAndErase():
@@ -173,27 +191,33 @@ def decrypt():
             if not cleanUpEvent.is_set():
                 timeLabel[TEXT] = ""
                 return
-            timeLabel[TEXT] = "Timer: " + str(i)
+            timeLabel[TEXT] = f"Timer: {str(i)}"
             sleep(1)
         fillResult("")
         timeLabel[TEXT] = ""
     t = Thread(target=waitAndErase)
     t.start()
+    logging.debug("Started waitAndErase thread")
 
 def encrypt():
     content = resultText.get(BEGIN, END)
-    if not len(content.strip()):
+    if _isBlank(content):
+        logging.info("Empty content to encrypt")
         return
 
     id = simpledialog.askstring("Password ID", "Please provide password identifier")
-    if not id or not len(id.strip()):
+    if _isBlank(id):
+        logging.info("Empty password")
         return
     if id in yamlChoice["values"]:
-        messagebox.showerror(title=ERROR, message=f"Id '{id}' is already in the file. Please remove the entry manually, if you want to proceed with this ID")
+        errorMsg = f"Id '{id}' is already in the file. Please remove the entry manually, if you want to proceed with this ID"
+        logging.error(errorMsg)
+        messagebox.showerror(title=ERROR, message=errorMsg)
         return
 
     epw = simpledialog.askstring(PASSWORD, "Enter Encryption Password:", show=HIDE_PW_CHAR)
-    if not epw or not len(epw.strip()):
+    if _isBlank(epw):
+        logging.info("Empty password")
         return
 
     (h, t) = split(fileLabel[TEXT])
@@ -208,23 +232,28 @@ def encrypt():
     except Exception as e:
         remove(fileLabel[TEXT])
         rename(temp_filepath, fileLabel[TEXT])
-        messagebox.showerror(title=id, message="Unable to encrypt")
+        errorMsg = "Unable to encrypt"
+        logging.error(errorMsg)
+        messagebox.showerror(title=id, message=errorMsg)
         return
     fillResult(encrypted)
     remove(temp_filepath)
 
 def new_password_file():
     filepath = filedialog.asksaveasfilename(title = "Please provide a file name",
-        filetypes = [("Yaml file", "*.yaml"), ("all files", "*.*")],
+        filetypes = FILETYPES,
         initialdir = getcwd())  
-    if filepath is None:
+    if _isBlank(filepath):
+        logging.info("Empty filePath")
         return
     
     try:
         f = open(filepath, "x")
         f.close()
     except FileExistsError:
-        messagebox.showwarning(message="This file already exists!")
+        warnMsg = "This file already exists!"
+        logging.warning(warnMsg)
+        messagebox.showwarning(message=warnMsg)
     chooseYamlFile(filepath)
 
 def main(args):
