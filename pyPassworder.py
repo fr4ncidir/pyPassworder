@@ -24,7 +24,6 @@
 
 import sys
 import yaml
-import base64
 import logging
 
 from os import getcwd, rename, remove
@@ -36,6 +35,7 @@ from time import sleep
 from tkinter import Scrollbar, Tk, Menu, Button, Label, filedialog, messagebox, Text, simpledialog
 from tkinter.ttk import Combobox
 from tkinter.constants import *
+from base64 import urlsafe_b64encode
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -153,7 +153,7 @@ def getKey(pw):
         length=32, 
         salt=b'y\x94\xc49`\x18\xb2\xb0Q\xf7\x1ed\x7f*lO', 
         iterations=100000)
-    key = base64.urlsafe_b64encode(kdf.derive(pw.encode()))
+    key = urlsafe_b64encode(kdf.derive(pw.encode()))
     return Fernet(key)
 
 def decrypt():
@@ -192,12 +192,19 @@ def decrypt():
                 timeLabel[TEXT] = ""
                 return
             timeLabel[TEXT] = f"Timer: {str(i)}"
+            if i % 3 == 0:
+                logging.warning(timeLabel[TEXT])
             sleep(1)
         fillResult("")
         timeLabel[TEXT] = ""
     t = Thread(target=waitAndErase)
     t.start()
     logging.debug("Started waitAndErase thread")
+
+def _clearText():
+    global cleanUpEvent
+    fillResult("")
+    cleanUpEvent.clear()
 
 def encrypt():
     content = resultText.get(BEGIN, END)
@@ -256,6 +263,26 @@ def new_password_file():
         messagebox.showwarning(message=warnMsg)
     chooseYamlFile(filepath)
 
+def _openYamlFile(yamlPath):
+    if not _isBlank(yamlPath) and isfile(yamlPath):
+        logging.debug(f"Will try to open {yamlPath} in default editor")
+        try:
+            if sys.platform == "win32":
+                from os import startfile
+                startfile(normpath(yamlPath))
+            else:
+                from subprocess import call
+                opener = "open" if sys.platform == "darwin" else "xdg-open"
+                call([opener, normpath(yamlPath)])
+        except Exception as e:
+            errorMsg = f"Unable to open file {yamlPath} in external editor due to {repr(e)}"
+            logging.error(errorMsg)
+            messagebox.showerror(title=ERROR, message=errorMsg)
+    else:
+        warnMsg = "No file to open!"
+        logging.warning(warnMsg)
+        messagebox.showwarning(message=warnMsg)
+
 def main(args):
     global root
     global fileLabel
@@ -288,9 +315,12 @@ def main(args):
         width=(SIZE_X-3*BORDER-(SIZE_X-BORDER)*3/4), height=HEIGHT)
 
     yamlChoice = Combobox(root, state="readonly")
-    yamlChoice.place(x=BORDER, y=2*BORDER+HEIGHT, width=SIZE_X-2*BORDER, height=HEIGHT)
+    yamlChoice.place(x=BORDER, y=2*BORDER+HEIGHT, width=(SIZE_X-BORDER)*3/4, height=HEIGHT)
     chooseYamlFile(yamlFile=getYamlFilePathOrDefault())
     yamlChoice.bind("<<ComboboxSelected>>", lambda x: fillResult(fileLabel[TEXT], yamlChoice.get()))
+    openButton = Button(root, text="Open File in default editor", command=lambda: _openYamlFile(fileLabel[TEXT]))
+    openButton.place(x=2*BORDER+(SIZE_X-BORDER)*3/4, y=2*BORDER+HEIGHT, 
+        width=(SIZE_X-3*BORDER-(SIZE_X-BORDER)*3/4), height=HEIGHT)
 
     resultText = Text(root)
     resultText.place(x=BORDER, y=3*BORDER+2*HEIGHT, height=SIZE_Y-5*BORDER-2*HEIGHT, width=2/3*SIZE_X)
@@ -307,8 +337,12 @@ def main(args):
     encryptButton.place(x=2*BORDER+2/3*SIZE_X, y=4*BORDER+3*HEIGHT, 
         width=COL_B_WIDTH, height=HEIGHT)
 
+    clearButton = Button(root, text="Clear text", command=_clearText)
+    clearButton.place(x=2*BORDER+2/3*SIZE_X, y=5*BORDER+4*HEIGHT, 
+        width=COL_B_WIDTH, height=HEIGHT)
+
     timeLabel = Label(root, text="")
-    timeLabel.place(x=2*BORDER+2/3*SIZE_X, y=5*BORDER+4*HEIGHT, width=COL_B_WIDTH, height=HEIGHT)
+    timeLabel.place(x=2*BORDER+2/3*SIZE_X, y=6*BORDER+5*HEIGHT, width=COL_B_WIDTH, height=HEIGHT)
 
     root.mainloop()
     return 0
